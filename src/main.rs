@@ -6,43 +6,8 @@ mod play_phase;
 mod player;
 
 use crate::bidding_phase::PledgePhase;
-use crate::common::{Contract, Hand, PartnerCondition, PlayerIndex};
 use crate::extra_phase::ExtraPhase;
 use crate::player::{Player, RandomPlayer};
-use rand::prelude::SliceRandom;
-
-#[derive(Clone, Debug)]
-struct GameState {
-    hands: Vec<Hand>,
-    contract: Contract,
-    declarer: PlayerIndex,
-    partner_condition: PartnerCondition,
-    partner: Option<PlayerIndex>,
-    round: u8,
-    lead: PlayerIndex,
-
-    curr_player: PlayerIndex,
-}
-
-impl GameState {
-    fn new(
-        hands: Vec<Hand>,
-        contract: Contract,
-        declarer: PlayerIndex,
-        partner_condition: PartnerCondition,
-    ) -> Self {
-        GameState {
-            hands,
-            contract,
-            declarer,
-            partner_condition,
-            partner: None,
-            round: 1,
-            lead: declarer,
-            curr_player: declarer,
-        }
-    }
-}
 
 fn main() {
     let players: Vec<Box<dyn Player>> = vec![
