@@ -1,4 +1,4 @@
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum Suit {
     H,
     D,
@@ -6,7 +6,7 @@ pub enum Suit {
     S,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum Card {
     Shaped(Suit, u8),
     Joker,

@@ -1,10 +1,11 @@
 mod card;
 
+use std::collections::HashSet;
 use crate::card::{Card, Suit};
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 
-type Hand = Vec<Card>;
+type Hand = HashSet<Card>;
 type PlayerIndex = usize;
 
 const MAX_EFFECTIVE_COUNT: u8 = 21; // 풀 노기루
@@ -39,14 +40,14 @@ impl Contract {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct BiddingPhaseState {
     hands: Vec<Hand>,
     curr_player: PlayerIndex,
     bidding: Vec<Option<Contract>>,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct GameState {
     hands: Vec<Hand>,
     contract: Contract,
@@ -79,37 +80,38 @@ impl GameState {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct ExposedGameState {
-    discarded: Option<Vec<Card>>,
+    discarded: Option<HashSet<Card>>,
     prev_played: Vec<Vec<Card>>,
     curr_played: Vec<Card>,
     trump: Suit,
     declarer: PlayerIndex,
-    friend: Option<PlayerIndex>,
-    hand: Vec<Card>,
+    partner: Option<PlayerIndex>,
+    hand: Hand,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct BiddingState {
-    hand: Vec<Card>,
+    hand: Hand,
+    curr_contract: Option<Contract>,
     // TODO: consider other players' contracts
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct ExtraExposedState {
-    hand: Vec<Card>,
+    hand: Hand,
     contract: Contract,
     // TODO: consider other players' contracts
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct PledgePhase {
-    hands: Vec<Vec<Card>>,
+    hands: Vec<Hand>,
     curr_contract: Option<Contract>,
     call_history: Vec<(PlayerIndex, Option<Contract>)>,
     players_queue: Vec<PlayerIndex>,
-    bottom: Vec<Card>,
+    bottom: HashSet<Card>,
 
     min_effective_count: u8,
 }
@@ -123,11 +125,11 @@ impl PledgePhase {
             }
         }
         cards.shuffle(&mut thread_rng());
-        let mut hands: Vec<Vec<Card>> = vec![];
+        let mut hands: Vec<Hand> = vec![];
         for _ in 0..5 {
             hands.push(cards.drain(0..10).collect());
         }
-        let bottom = cards;
+        let bottom = cards.iter().cloned().collect();
         let mut players_queue = (0..5).collect::<Vec<PlayerIndex>>();
         players_queue.rotate_left(start_player);
         PledgePhase {
@@ -136,13 +138,14 @@ impl PledgePhase {
             call_history: vec![],
             players_queue,
             bottom,
-            min_effective_count: min_pledge,
+            min_effective_count: min_pledge - 1,    // -1 for no suit
         }
     }
 
     pub fn bidding_state(&self, player: PlayerIndex) -> BiddingState {
         BiddingState {
             hand: self.hands[player].clone(),
+            curr_contract: self.curr_contract,
         }
     }
 
@@ -183,7 +186,7 @@ impl PledgePhase {
 trait Player {
     fn next_hand(&self, state: &ExposedGameState) -> Card;
     fn bidding(&self, state: &BiddingState) -> Option<Contract>;
-    fn declare_plan(&self, state: ExtraExposedState) -> (Contract, PartnerCondition, Vec<Card>);
+    fn declare_plan(&self, state: ExtraExposedState) -> (Contract, PartnerCondition, HashSet<Card>);
     fn play_action(&self, state: ExposedGameState) -> PlayAction;
 }
 
@@ -195,12 +198,22 @@ impl Player for RandomPlayer {
     }
 
     fn bidding(&self, state: &BiddingState) -> Option<Contract> {
-        if state.
-        None
+        if state.curr_contract.is_none() {
+            return Some(Contract {
+                suit: None,
+                count: 12,
+            })
+        }
+        return None;
     }
 
-    fn declare_plan(&self, state: ExtraExposedState) -> (Contract, PartnerCondition, Vec<Card>) {
-        unimplemented!()
+    fn declare_plan(&self, state: ExtraExposedState) -> (Contract, PartnerCondition, HashSet<Card>) {
+        let discard = state.hand.iter().take(3).cloned().collect::<HashSet<Card>>();
+        (
+            state.contract,
+            PartnerCondition::None,
+            discard,
+        )
     }
 
     fn play_action(&self, state: ExposedGameState) -> PlayAction {
@@ -208,6 +221,7 @@ impl Player for RandomPlayer {
     }
 }
 
+#[derive(Clone, Eq, PartialEq, Debug)]
 struct ExtraPhase {
     hands: Vec<Hand>,
     contract: Contract,
@@ -229,30 +243,65 @@ impl ExtraPhase {
     }
 
     pub fn declarer(&self) -> PlayerIndex {
-        unimplemented!()
+        self.declarer
     }
 
     pub fn extra_state(&self) -> ExtraExposedState {
-        unimplemented!()
+        ExtraExposedState {
+            hand: self.hands[self.declarer].clone(),
+            contract: self.contract,
+        }
     }
 
     pub fn submit_plan(
         &mut self,
         contract: Contract,
         partner_condition: PartnerCondition,
-        discards: Vec<Card>,
-    ) {
-        unimplemented!()
+        discards: HashSet<Card>,
+    ) -> PlayPhase {
+        assert!(contract.effective_count() >= self.contract.effective_count());
+        let declarer_hand = self.hands[self.declarer].clone();
+        PlayPhase {
+            hands: self.hands.clone(),
+            declarer: self.declarer,
+            contract,
+            partner_condition,
+            discarded: discards,
+            partner_revealed: None,
+            round: 0,
+            joker_called: false,
+            submitted: vec![],
+            round_results: vec![],
+        }
     }
 }
 
-struct PlayPhase {}
+#[derive(Clone, Eq, PartialEq, Debug)]
+struct RoundResult {
+    winner: PlayerIndex,
+    submitted: Vec<Card>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+struct PlayPhase {
+    // Static state
+    hands: Vec<Hand>,
+    declarer: PlayerIndex,
+    contract: Contract,
+    partner_condition: PartnerCondition,
+    discarded: HashSet<Card>,
+    partner_revealed: Option<PlayerIndex>,
+
+    // Round state
+    round: u8,
+    joker_called: bool,
+    submitted: Vec<Option<Card>>,
+
+    // History
+    round_results: Vec<RoundResult>,
+}
 
 impl PlayPhase {
-    pub fn from_extra(game: ExtraPhase) -> Self {
-        unimplemented!()
-    }
-
     pub fn current_turn_order(&self) -> Vec<PlayerIndex> {
         unimplemented!()
     }
@@ -298,10 +347,9 @@ fn main() {
     println!("주공: Player {}", declarer_index);
     let (contract, condition, discards) = declarer.declare_plan(game.extra_state());
     println!("공약: {:?}", condition);
-    game.submit_plan(contract, condition, discards);
+    let mut game = game.submit_plan(contract, condition, discards);
 
     println!("== 플레이 ==");
-    let mut game = PlayPhase::from_extra(game);
     for round in 0..10 {
         println!("== Round {} ==", round + 1);
         for player_index in game.current_turn_order() {
