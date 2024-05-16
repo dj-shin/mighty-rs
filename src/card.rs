@@ -1,5 +1,4 @@
 use std::fmt;
-use std::ptr::write;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum Suit {
@@ -26,7 +25,8 @@ impl fmt::Debug for Card {
                     13 => write!(f, "K"),
                     14 => write!(f, "A"),
                     n => write!(f, "{}", n),
-                }.unwrap();
+                }
+                .unwrap();
                 match s {
                     Suit::H => write!(f, "♥️"),
                     Suit::D => write!(f, "♦️"),
