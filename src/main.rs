@@ -82,13 +82,22 @@ impl GameState {
 
 #[derive(Clone, Debug)]
 struct ExposedGameState {
-    discarded: Option<HashSet<Card>>,
-    prev_played: Vec<Vec<Card>>,
-    curr_played: Vec<Card>,
-    trump: Suit,
-    declarer: PlayerIndex,
-    partner: Option<PlayerIndex>,
+    // Static state
     hand: Hand,
+    declarer: PlayerIndex,
+    contract: Contract,
+    partner_condition: PartnerCondition,
+    discarded: Option<HashSet<Card>>,
+    partner_revealed: Option<PlayerIndex>,
+
+    // Round state
+    round: u8,
+    joker_called: bool,
+    submitted: Vec<Option<Card>>,
+    round_starter: PlayerIndex,
+
+    // History
+    round_results: Vec<RoundResult>,
 }
 
 #[derive(Clone, Debug)]
@@ -184,7 +193,6 @@ impl PledgePhase {
 }
 
 trait Player {
-    fn next_hand(&self, state: &ExposedGameState) -> Card;
     fn bidding(&self, state: &BiddingState) -> Option<Contract>;
     fn declare_plan(&self, state: ExtraExposedState) -> (Contract, PartnerCondition, HashSet<Card>);
     fn play_action(&self, state: ExposedGameState) -> PlayAction;
@@ -193,10 +201,6 @@ trait Player {
 struct RandomPlayer {}
 
 impl Player for RandomPlayer {
-    fn next_hand(&self, state: &ExposedGameState) -> Card {
-        unimplemented!()
-    }
-
     fn bidding(&self, state: &BiddingState) -> Option<Contract> {
         if state.curr_contract.is_none() {
             return Some(Contract {
@@ -217,7 +221,8 @@ impl Player for RandomPlayer {
     }
 
     fn play_action(&self, state: ExposedGameState) -> PlayAction {
-        unimplemented!()
+        let random_card = state.hand.iter().next().unwrap().clone();
+        PlayAction::Hand(random_card)
     }
 }
 
@@ -261,6 +266,9 @@ impl ExtraPhase {
     ) -> PlayPhase {
         assert!(contract.effective_count() >= self.contract.effective_count());
         let declarer_hand = self.hands[self.declarer].clone();
+        assert!(declarer_hand.is_superset(&discards));
+        self.hands[self.declarer] = declarer_hand.difference(&discards).cloned().collect();
+
         PlayPhase {
             hands: self.hands.clone(),
             declarer: self.declarer,
@@ -270,8 +278,9 @@ impl ExtraPhase {
             partner_revealed: None,
             round: 0,
             joker_called: false,
-            submitted: vec![],
+            submitted: vec![None; 5],
             round_results: vec![],
+            round_starter: self.declarer,
         }
     }
 }
@@ -296,22 +305,64 @@ struct PlayPhase {
     round: u8,
     joker_called: bool,
     submitted: Vec<Option<Card>>,
+    round_starter: PlayerIndex,
 
     // History
     round_results: Vec<RoundResult>,
 }
 
 impl PlayPhase {
-    pub fn current_turn_order(&self) -> Vec<PlayerIndex> {
-        unimplemented!()
+    pub fn current_round_order(&self) -> Vec<PlayerIndex> {
+        let mut players_queue = (0..5).collect::<Vec<PlayerIndex>>();
+        players_queue.rotate_left(self.round_starter);
+        return players_queue;
     }
 
     pub fn play_state(&self, player_index: PlayerIndex) -> ExposedGameState {
-        unimplemented!()
+        let discarded = if player_index == self.declarer { Some(self.discarded.clone()) } else { None };
+        let hand = self.hands[player_index].clone();
+        let partner_revealed = self.partner_revealed;
+
+        ExposedGameState {
+            hand,
+            declarer: self.declarer,
+            contract: self.contract,
+            partner_condition: self.partner_condition,
+            discarded,
+            partner_revealed,
+            round: self.round,
+            joker_called: self.joker_called,
+            submitted: self.submitted.clone(),
+            round_starter: self.round_starter,
+            round_results: self.round_results.clone(),
+        }
+    }
+
+    fn is_player_partner(&self, player_index: PlayerIndex) -> bool {
+        match self.partner_condition {
+            PartnerCondition::CardCondition(card) => {
+                self.hands[player_index].contains(&card)
+            }
+            PartnerCondition::Round(n) => {
+                self.round_results.get(n as usize)
+                    .map_or(
+                        false,
+                        |round_result| round_result.winner == player_index,
+                    )
+            }
+            PartnerCondition::Player(p) => p == player_index,
+            PartnerCondition::None => false,
+        }
     }
 
     pub fn player_acts(&mut self, player_index: PlayerIndex, action: PlayAction) {
-        unimplemented!()
+        match action {
+            PlayAction::Hand(card) => {
+                self.hands[player_index].remove(&card);
+            }
+            PlayAction::JokerCall => {}
+            PlayAction::JokerStart(_) => {}
+        }
     }
 }
 
@@ -341,23 +392,29 @@ fn main() {
     }
 
     let mut game = ExtraPhase::from_pledge(game);
+    println!("{:?}", game);
     let declarer_index = game.declarer();
     let declarer = &players[declarer_index];
 
     println!("주공: Player {}", declarer_index);
     let (contract, condition, discards) = declarer.declare_plan(game.extra_state());
     println!("공약: {:?}", condition);
+
+    println!("{:?}", discards);
+
     let mut game = game.submit_plan(contract, condition, discards);
 
+    println!("{:?}", game);
     println!("== 플레이 ==");
     for round in 0..10 {
         println!("== Round {} ==", round + 1);
-        for player_index in game.current_turn_order() {
+        for player_index in game.current_round_order() {
             let player = &players[player_index];
             let curr_state = game.play_state(player_index);
             let action = player.play_action(curr_state);
             println!("Player {} : {:?}", player_index, action);
             game.player_acts(player_index, action);
+            println!("{:?}", game);
         }
     }
 }
