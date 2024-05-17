@@ -75,7 +75,11 @@ impl Player for RandomPlayer {
             .take(3)
             .cloned()
             .collect::<HashSet<Card>>();
-        (state.contract, PartnerCondition::None, discard)
+        (
+            state.contract,
+            PartnerCondition::CardCondition(Card::Shaped(Suit::S, 14)),
+            discard,
+        )
     }
 
     fn play_action(&self, state: ExposedGameState) -> PlayAction {

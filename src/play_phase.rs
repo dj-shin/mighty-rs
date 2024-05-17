@@ -81,6 +81,19 @@ impl fmt::Debug for PlayPhase {
     }
 }
 
+#[derive(Clone, Eq, PartialEq, Debug, Copy)]
+pub enum PartyType {
+    Leading,
+    Opposing,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct GameResult {
+    scores: Vec<u8>,
+    win: Vec<bool>,
+    win_side: PartyType,
+}
+
 impl PlayPhase {
     pub fn current_round_order(&self) -> Vec<PlayerIndex> {
         let mut players_queue = (0..5).collect::<Vec<PlayerIndex>>();
@@ -110,18 +123,6 @@ impl PlayPhase {
             round_starter: self.round_starter,
             round_suit: self.round_suit,
             round_results: self.round_results.clone(),
-        }
-    }
-
-    fn is_player_partner(&self, player_index: PlayerIndex) -> bool {
-        match self.partner_condition {
-            PartnerCondition::CardCondition(card) => self.hands[player_index].contains(&card),
-            PartnerCondition::Round(n) => self
-                .round_results
-                .get(n as usize)
-                .map_or(false, |round_result| round_result.winner == player_index),
-            PartnerCondition::Player(p) => p == player_index,
-            PartnerCondition::None => false,
         }
     }
 
@@ -158,6 +159,15 @@ impl PlayPhase {
                 }
                 self.submitted[player_index] = Some(card);
                 self.hands[player_index].remove(&card);
+
+                if self.partner_revealed.is_none() {
+                    if let PartnerCondition::CardCondition(condition_card) = self.partner_condition
+                    {
+                        if card == condition_card {
+                            self.partner_revealed = Some(player_index);
+                        }
+                    }
+                }
             }
             PlayAction::JokerCall(card) => {
                 assert_eq!(player_index, self.round_starter);
@@ -167,6 +177,15 @@ impl PlayPhase {
                 self.joker_called = true;
                 self.submitted[player_index] = Some(card);
                 self.hands[player_index].remove(&card);
+
+                if self.partner_revealed.is_none() {
+                    if let PartnerCondition::CardCondition(condition_card) = self.partner_condition
+                    {
+                        if card == condition_card {
+                            self.partner_revealed = Some(player_index);
+                        }
+                    }
+                }
             }
             PlayAction::JokerStart(s) => {
                 assert_eq!(player_index, self.round_starter);
@@ -174,6 +193,15 @@ impl PlayPhase {
                 self.hands[player_index].remove(&Card::Joker);
                 self.submitted[player_index] = Some(Card::Joker);
                 self.round_suit = Some(s);
+
+                if self.partner_revealed.is_none() {
+                    if let PartnerCondition::CardCondition(condition_card) = self.partner_condition
+                    {
+                        if Card::Joker == condition_card {
+                            self.partner_revealed = Some(player_index);
+                        }
+                    }
+                }
             }
         }
 
@@ -184,6 +212,14 @@ impl PlayPhase {
                 winner,
                 submitted: self.submitted.iter().map(|v| v.unwrap()).collect(),
             });
+
+            if self.partner_revealed.is_none() {
+                if let PartnerCondition::Round(n) = self.partner_condition {
+                    if n == self.round {
+                        self.partner_revealed = Some(winner);
+                    }
+                }
+            }
 
             self.round += 1;
             self.round_suit = None;
@@ -223,5 +259,40 @@ impl PlayPhase {
                 }
             }
         };
+    }
+
+    pub fn result(&self) -> GameResult {
+        let scores: Vec<u8> = (0..5 as PlayerIndex)
+            .map(|i| {
+                self.round_results
+                    .iter()
+                    .filter(|r| r.winner == i)
+                    .map(|r| r.submitted.iter().map(|c| c.score()).sum::<u8>())
+                    .sum()
+            })
+            .collect();
+        let declarer_score = scores[self.declarer];
+        let partner_score = self.partner_revealed.map_or(0, |partner| scores[partner]);
+
+        let (win, win_side) = if declarer_score + partner_score >= self.contract.count {
+            (
+                (0..5 as PlayerIndex)
+                    .map(|i| i == self.declarer || Some(i) == self.partner_revealed)
+                    .collect::<Vec<bool>>(),
+                PartyType::Leading,
+            )
+        } else {
+            (
+                (0..5 as PlayerIndex)
+                    .map(|i| i != self.declarer && Some(i) != self.partner_revealed)
+                    .collect::<Vec<bool>>(),
+                PartyType::Opposing,
+            )
+        };
+        GameResult {
+            scores,
+            win,
+            win_side,
+        }
     }
 }

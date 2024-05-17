@@ -53,13 +53,18 @@ impl ExtraPhase {
         assert!(declarer_hand.is_superset(&discards));
         self.hands[self.declarer] = declarer_hand.difference(&discards).cloned().collect();
 
+        let partner_revealed = match partner_condition {
+            PartnerCondition::Player(partner) => Some(partner),
+            _ => None,
+        };
+
         PlayPhase {
             hands: self.hands.clone(),
             declarer: self.declarer,
             contract,
             partner_condition,
             discarded: discards,
-            partner_revealed: None,
+            partner_revealed,
             round: 0,
             joker_called: false,
             submitted: vec![None; 5],

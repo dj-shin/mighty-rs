@@ -60,4 +60,5 @@ fn main() {
             println!("{:?}", game);
         }
     }
+    println!("Result: {:?}", game.result());
 }
