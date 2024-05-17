@@ -65,6 +65,7 @@ impl ExtraPhase {
             submitted: vec![None; 5],
             round_results: vec![],
             round_starter: self.declarer,
+            round_suit: None,
         }
     }
 }

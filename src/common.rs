@@ -17,7 +17,7 @@ pub enum PartnerCondition {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum PlayAction {
     Hand(Card),
-    JokerCall,
+    JokerCall(Card),
     JokerStart(Suit),
 }
 
